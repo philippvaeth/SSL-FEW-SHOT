@@ -1,6 +1,6 @@
 import torch.nn as nn
 from feat.utils import euclidean_metric
-
+import torch
 class ProtoNet(nn.Module):
 
     def __init__(self, args):
@@ -14,9 +14,13 @@ class ProtoNet(nn.Module):
             self.encoder = ResNet()
         elif args.model_type == 'AmdimNet':
             from feat.networks.amdimnet import AmdimNet
-            self.encoder = AmdimNet(ndf=args.ndf, n_rkhs=args.rkhs, n_depth=args.nd)
+            model = AmdimNet(ndf=args.ndf, n_rkhs=args.rkhs, n_depth=args.nd)
+            self.encoder = torch.nn.DataParallel(model, device_ids=[ torch.device("cuda:0"), torch.device("cuda:1")])
         else:
             raise ValueError('')
+
+        #GLVQ
+        # 1. randaug in loader - data shot augmentieren = orig_datashot + randaug_datashot
 
     def forward(self, data_shot, data_query):
         proto = self.encoder(data_shot)

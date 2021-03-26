@@ -9,31 +9,33 @@ from feat.dataloader.samplers import CategoriesSampler
 from feat.models.protonet import ProtoNet
 from feat.utils import pprint, set_gpu, ensure_path, Averager, Timer, count_acc, compute_confidence_interval
 from tensorboardX import SummaryWriter
-
+#from dda.data.transformations import randaugment
+#from randaugment.randaugment import ImageNetPolicy
+from torchsummary import summary
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--max_epoch', type=int, default=200)
+    parser.add_argument('--max_epoch', type=int, default=100)
     parser.add_argument('--shot', type=int, default=1)
     parser.add_argument('--query', type=int, default=15)
     parser.add_argument('--way', type=int, default=5)
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--step_size', type=int, default=10)
-    parser.add_argument('--gamma', type=float, default=0.2)
-    parser.add_argument('--temperature', type=float, default=1)
-    parser.add_argument('--model_type', type=str, default='ConvNet', choices=['ConvNet', 'ResNet', 'AmdimNet'])
+    parser.add_argument('--gamma', type=float, default=0.5)
+    parser.add_argument('--temperature', type=float, default=128)
+    parser.add_argument('--model_type', type=str, default='AmdimNet', choices=['ConvNet', 'ResNet', 'AmdimNet'])
     parser.add_argument('--dataset', type=str, default='MiniImageNet', choices=['MiniImageNet', 'CUB', 'TieredImageNet'])
     # MiniImageNet, ConvNet, './saves/initialization/miniimagenet/con-pre.pth'
     # MiniImageNet, ResNet, './saves/initialization/miniimagenet/res-pre.pth'
     # CUB, ConvNet, './saves/initialization/cub/con-pre.pth'
-    parser.add_argument('--init_weights', type=str, default=None)
-    parser.add_argument('--save_path', type=str, default=None)
-    parser.add_argument('--gpu', default='0')
+    parser.add_argument('--init_weights', type=str, default='./saves/initialization/miniimagenet/mini_imagenet_ndf192_rkhs1536_rd8_ssl_cpt.pth')
+    parser.add_argument('--save_path', type=str, default="./saves")
+    parser.add_argument('--gpu', default='0,1')
 
     # AMDIM Modelrd
-    parser.add_argument('--ndf', type=int, default=256)
-    parser.add_argument('--rkhs', type=int, default=2048)
-    parser.add_argument('--nd', type=int, default=10)
+    parser.add_argument('--ndf', type=int, default=192)
+    parser.add_argument('--rkhs', type=int, default=1536)
+    parser.add_argument('--nd', type=int, default=8)
 
 
     args = parser.parse_args()
@@ -57,13 +59,41 @@ if __name__ == '__main__':
     else:
         raise ValueError('Non-supported Dataset.')
 
+    # randaugment= randaugment(randaugment_type=ImageNetPolicy())
+    #
+    # def ParallelLoader(randaugment, **kwargs):
+    #     def __init__():
+    #         self.dataloader = DataLoader(**kwargs)
+    #         self.randaugment = randaugment
+    #
+    #     def __iter__(self):
+    #         return dataloader
+    #
+    #     def __next__(self):
+    #         batch = next(self.dataloader)
+    #         backup = copy.deepcopy(sample)
+    #         if self.randaugment is not None:
+    #             rand_sample = self.randaugment(backup)
+    #             return batch, rand_sample
+    #         return [0,1,2,3]
+
+    def check_inf_nan(input):
+        if torch.count_nonzero(torch.isinf(input).int()) > 0:
+            print("Inf detected")
+        if torch.count_nonzero(torch.isnan(input).int()) > 0:
+            print("NaN detected")
+
+    #check_inf_nan(torch.tensor([1, float('inf'), 2, float('-inf'), float('nan')])) # method test
+
     trainset = Dataset('train', args)
-    train_sampler = CategoriesSampler(trainset.label, 100, args.way, args.shot + args.query)
-    train_loader = DataLoader(dataset=trainset, batch_sampler=train_sampler, num_workers=8, pin_memory=True)
+    train_sampler = CategoriesSampler(trainset.label, 50, args.way, args.shot + args.query) # batch original 100
+    train_loader = DataLoader(dataset=trainset, batch_sampler=train_sampler, num_workers=0, pin_memory=True)
+
+
 
     valset = Dataset('val', args)
-    val_sampler = CategoriesSampler(valset.label, 500, args.way, args.shot + args.query)
-    val_loader = DataLoader(dataset=valset, batch_sampler=val_sampler, num_workers=8, pin_memory=True)
+    val_sampler = CategoriesSampler(valset.label, 250, args.way, args.shot + args.query) # batch original 500
+    val_loader = DataLoader(dataset=valset, batch_sampler=val_sampler, num_workers=0, pin_memory=True)
     
     model = ProtoNet(args)
     if args.model_type == 'ConvNet':
@@ -134,19 +164,47 @@ if __name__ == '__main__':
         for i, batch in enumerate(train_loader, 1):
             global_count = global_count + 1
             if torch.cuda.is_available():
-                data, _ = [_.cuda() for _ in batch]
+                data, data_a, _ = [_.cuda() for _ in batch]
             else:
                 data = batch[0]
             p = args.shot * args.way
-            data_shot, data_query = data[:p], data[p:]
-            logits = model(data_shot, data_query)
-            loss = F.cross_entropy(logits, label)
-            acc = count_acc(logits, label)
-            writer.add_scalar('data/loss', float(loss), global_count)
-            writer.add_scalar('data/acc', float(acc), global_count)
-            print('epoch {}, train {}/{}, loss={:.4f} acc={:.4f}'
-                  .format(epoch, i, len(train_loader), loss.item(), acc))
 
+            data_shot, data_query = data[:p], data[p:]
+            #check_inf_nan(data_shot)
+            #check_inf_nan(data_query)
+
+            logits = model(data_shot, data_query)
+            #check_inf_nan(logits)
+            #summary(model, data_shot, data_query)
+
+            data_shot_a, data_query_a = data_a[:p], data_a[p:]
+            logits_a = model(data_shot_a, data_query_a)
+            #check_inf_nan(logits_a)
+
+            loss_c = F.cross_entropy(logits, label)
+            acc = count_acc(logits, label)
+
+            #loss_a = F.cross_entropy(logits, logits_a)
+            diss_no = torch.nn.Softmax(dim=0)(logits)
+            #check_inf_nan(diss_no)
+            diss_aug = torch.nn.Softmax(dim=0)(logits_a)
+            #check_inf_nan(diss_aug)
+
+           # loss_a = F.binary_cross_entropy_with_logits(logits,logits_a)/len(data)
+            loss_a = F.mse_loss(logits,logits_a)/len(data)
+            #loss_a = F.binary_cross_entropy(diss_no, diss_aug) / len(data)
+            #loss_a = (-1 * (torch.sum(diss_no * torch.log(diss_aug))) - 1 * (
+            #torch.sum(diss_no * torch.log(diss_aug)))) / len(data)
+            #check_inf_nan(loss_a)
+
+            writer.add_scalar('data/loss_c', float(loss_c), global_count)
+            writer.add_scalar('data/loss_a', float(loss_a), global_count)
+            writer.add_scalar('data/acc', float(acc), global_count)
+
+            print('epoch {}, train {}/{}, loss={:.4f}, loss_a={:.4f}, acc={:.4f}'
+                  .format(epoch, i, len(train_loader), loss_c.item(),loss_a, acc))
+
+            loss = loss_a + loss_c
             tl.add(loss.item())
             ta.add(acc)
 
@@ -172,7 +230,7 @@ if __name__ == '__main__':
         with torch.no_grad():
             for i, batch in enumerate(val_loader, 1):
                 if torch.cuda.is_available():
-                    data, _ = [_.cuda() for _ in batch]
+                    data, _, _ = [_.cuda() for _ in batch]
                 else:
                     data = batch[0]
                 p = args.shot * args.way

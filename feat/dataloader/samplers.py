@@ -6,8 +6,8 @@ class CategoriesSampler():
 
     def __init__(self, label, n_batch, n_cls, n_per):
         self.n_batch = n_batch
-        self.n_cls = n_cls
-        self.n_per = n_per
+        self.n_cls = n_cls # way
+        self.n_per = n_per # shot + query
 
         label = np.array(label)
         self.m_ind = []
