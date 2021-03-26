@@ -5,6 +5,9 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import numpy as np
 
+from randaugment.randaugment import ImageNetPolicy
+import copy
+
 THIS_PATH = osp.dirname(__file__)
 ROOT_PATH = osp.abspath(osp.join(THIS_PATH, '..', '..'))
 IMAGE_PATH = osp.join(ROOT_PATH, 'data/miniimagenet/images')
@@ -46,6 +49,14 @@ class MiniImageNet(Dataset):
                 transforms.Normalize(np.array([0.485, 0.456, 0.406]),
                                      np.array([0.229, 0.224, 0.225]))
             ])
+            self.randaugtransform = transforms.Compose([
+                transforms.Resize(92),
+                transforms.CenterCrop(image_size),
+                ImageNetPolicy(),
+                transforms.ToTensor(),
+                transforms.Normalize(np.array([0.485, 0.456, 0.406]),
+                                     np.array([0.229, 0.224, 0.225]))
+            ])
         elif args.model_type == 'ResNet':
             image_size = 80
             self.transform = transforms.Compose([
@@ -53,6 +64,13 @@ class MiniImageNet(Dataset):
                 transforms.CenterCrop(image_size),
                 transforms.ToTensor(),
                 transforms.Normalize(np.array([x / 255.0 for x in [125.3, 123.0, 113.9]]), 
+                                     np.array([x / 255.0 for x in [63.0, 62.1, 66.7]]))])
+            self.randaugtransform = transforms.Compose([
+                transforms.Resize(92),
+                transforms.CenterCrop(image_size),
+                ImageNetPolicy(),
+                transforms.ToTensor(),
+                transforms.Normalize(np.array([x / 255.0 for x in [125.3, 123.0, 113.9]]),
                                      np.array([x / 255.0 for x in [63.0, 62.1, 66.7]]))])
         elif args.model_type == 'AmdimNet':
             INTERP = 3
@@ -66,14 +84,23 @@ class MiniImageNet(Dataset):
                 transforms.CenterCrop(128),
                 post_transform
             ])
+            self.randaugtransform = transforms.Compose([
+                transforms.Resize(146, interpolation=INTERP),
+                transforms.CenterCrop(128),
+                ImageNetPolicy(),
+                post_transform
+            ])
         else:
             raise ValueError('Non-supported Network Types. Please Revise Data Pre-Processing Scripts.')
+
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, i):
         path, label = self.data[i], self.label[i]
-        image = self.transform(Image.open(path).convert('RGB'))
-        return image, label
+        image = Image.open(path).convert('RGB')
+        transformed_image = self.transform(image)
+        randaug_image = self.randaugtransform(copy.deepcopy(image))
+        return transformed_image, randaug_image, label
 
