@@ -185,13 +185,14 @@ if __name__ == '__main__':
             acc = count_acc(logits, label)
 
             #loss_a = F.cross_entropy(logits, logits_a)
-            diss_no = torch.nn.Softmax(dim=0)(logits)
+            diss_no = torch.nn.Softmax(dim=1)(logits)
             #check_inf_nan(diss_no)
-            diss_aug = torch.nn.Softmax(dim=0)(logits_a)
+            diss_aug = torch.nn.Softmax(dim=1)(logits_a)
             #check_inf_nan(diss_aug)
 
            # loss_a = F.binary_cross_entropy_with_logits(logits,logits_a)/len(data)
-            loss_a = F.mse_loss(logits,logits_a)/len(data)
+            loss_a = F.binary_cross_entropy(diss_aug,diss_no.detach())/len(data)
+            # Etl. F.MSE(diss_aug,diss_no.detach())/len(data)
             #loss_a = F.binary_cross_entropy(diss_no, diss_aug) / len(data)
             #loss_a = (-1 * (torch.sum(diss_no * torch.log(diss_aug))) - 1 * (
             #torch.sum(diss_no * torch.log(diss_aug)))) / len(data)
